@@ -1,0 +1,201 @@
+#!/usr/bin/perl
+#
+# syslogstat pour IFT3830
+# programme en Perl recueillant des statistiques a partir d'un fichier de log systeme
+# j'ai decide d'utiliser la programmation orientee objet pour tenter de l'apprendre
+# en langage Perl et pour alleger le code
+#
+# Auteur: Patrick Lainesse
+#
+# Sources utilisees:
+#	https://perlmaven.com/how-to-get-index-of-element-in-array
+#	https://www.tutorialspoint.com/perl/perl_object_oriented.htm
+#	https://perldoc.perl.org/perlobj.html
+#	https://perlmaven.com/stringification-in-classic-perl-oop
+#	https://www.tutorialspoint.com/perl/perl_sending_email.htm
+
+package Entree;				# on utilise une classe Entree pour alleger le code 
+
+sub new {
+	my $class = shift;
+	my $date = {
+		_mois => shift,		# les mois sont stockes en un nombre entier pour faciliter les comparaisons
+		_jour => shift,
+		_heure => shift,
+		_minute => shift,
+		_seconde => shift,
+		_usager => shift,
+		_service => shift,
+		_processno => shift,
+		_message => shift
+	};
+
+	bless $date, $class;		# mot-cle qui instancie date en une simili-classe
+	return $date;
+}
+
+use overload				# necessaire pour redefinir la fonction stringify (voir source: perlmaven.com/stringification-in-classic-perl-oop)
+
+	'""' => \&stringify;
+
+sub stringify {				# redefinition de la methode stringify
+	my ( $date ) = @_;
+	my $moisEnMot = $listeMois[$date->{_mois}];
+
+	return sprintf '%s %s %s:%s:%s', $moisEnMot, $date->{_jour}, $date->{_heure}, $date->{_minute}, $date->{_seconde};
+}
+
+sub plusTot {					# methode qui recoit deux dates et retourne celle qui est anterieure a l'autre
+	my ( $aBattre, $challenger ) = @_;		# le deuxieme argument est celui passe entre parenthese lors de l'appel
+
+	if ( $challenger->{_mois} < $aBattre->{_mois} ) {
+		return $challenger;
+	} elsif ( $challenger->{_mois} == $aBattre->{_mois} ) {
+		if ( $challenger->{_jour} < $aBattre->{_jour} ) {
+			return $challenger;
+		} elsif ( $challenger->{_jour} == $aBattre->{_jour} ) {
+			if ( $challenger->{_heure} < $aBattre->{_heure} ) {
+				return $challenger;
+			} elsif ( $challenger->{_heure} == $aBattre->{_heure} ) {
+				if ( $challenger->{_minute} < $aBattre->{_minute} ) {
+					return $challenger;
+				} elsif ( $challenger->{_minute} == $aBattre->{_minute} ) {
+					if ( $challenger->{_seconde} < $aBattre->{_seconde} ) {
+						return $challenger;
+	}	}	}	}	}
+	return $aBattre;
+}
+
+sub plusTard {
+	my ( $aBattre, $challenger ) = @_;
+
+	if ( $challenger->{_mois} > $aBattre->{_mois} ) {
+		return $challenger;
+	} elsif ( $challenger->{_mois} == $aBattre->{_mois} ) {
+		if ( $challenger->{_jour} > $aBattre->{_jour} ) {
+			return $challenger;
+		} elsif ( $challenger->{_jour} == $aBattre->{_jour} ) {
+			if ( $challenger->{_heure} > $aBattre->{_heure} ) {
+				return $challenger;
+			} elsif ( $challenger->{_heure} == $aBattre->{_heure} ) {
+				if ( $challenger->{_minute} > $aBattre->{_minute} ) {
+					return $challenger;
+				} elsif ( $challenger->{_minute} == $aBattre->{_minute} ) {
+					if ( $challenger->{_seconde} > $aBattre->{_seconde} ) {
+						return $challenger;
+	}	}	}	}	}
+	return $aBattre;
+}
+##################### fin des codes de sous-routine de classe ##########################################################
+######################################## debut de code principal #######################################################
+
+my $courriel = $ARGV[0];
+# servira a convertir les indices de mois en chaines de caracteres, declare sans le my pour pouvoir l'utiliser dans les sous-routines
+@listeMois = ( "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" );
+
+my $dateMin = new Entree(11, 31, 23, 59, 59);	# on instancie dateMin a la valeur la plus grande possible
+my $dateMax = new Entree(0, 1, 00, 00, 00);
+
+my $nbPop = 0;	# pour compter le nombre de connexions pop...
+my $nbSsh = 0;	# ... ssh...
+my $nbImap = 0;	# ... et imap
+my %cnx_ssh = ();
+my %cmd_sudo = ();
+
+while ($ligne=<>)
+{
+	chop ($ligne);
+
+	#		  1$	   2$	    3$	    4$	   5$	6$	7$	  8$	   9$	    10$
+	#		Mois:MMM Date:DD  Heure:HH: MM:	   SS	usager	iro.	  service[processno]: message
+	if ($ligne =~ /^(\w{3})\s(\d?\d)\s(\d?\d):(\d\d):(\d\d)\s(\w+).(\w+.\w+.\w+)\s(\w+)\[(\d+)\]:\s(.*)/) {
+
+		my ($indexMois) = grep { $listeMois[$_] eq $1 } (0.. @listeMois-1);	# conversion du nom de mois en entier
+		my $temp = new Entree( $indexMois, $2, $3, $4, $5, $6, $8, $9, $10 );
+
+		if ($6 =~ /\w*sudo\w*/) {
+			print "$6\n";
+		}
+
+		$dateMin = $dateMin->plusTot($temp);		# remplacement par la ligne courante si elle est anterieure a la dateMin
+		$dateMax = $dateMax->plusTard($temp);
+		
+		# on compte le nombre de services contenant "pop" dont le message contient la mention "init"
+		if ($temp->{_service} =~ /\w*pop\w*/ && $temp->{_message} =~ /\w*init\w*/) {
+			$nbPop++;
+		}
+
+		# on compte le nombre de services contenant "ssh" dont le message contient la mention "connection from"
+		# apres tatonnement, "connection from" semble etre la cle la plus appropriee pour trier les connections reelles en ssh
+		if ($temp->{_service} =~ /\w*ssh\w*/ && $temp->{_message} =~ /\w*connection from\w*/) {
+			$nbSsh++;
+
+			if (exists $cnx_ssh{$temp->{_usager}}) {	# on ajoute les usagers qui se sont connectes dans un tableau associatif
+				$cnx_ssh{$temp->{_usager}}++
+			}
+			else {
+				$cnx_ssh{$temp->{_usager}} = "1";
+			}
+
+		}
+		# on compte le nombre de services contenant "imap" dont le message contient la mention "init"
+		if ($temp->{_service} =~ /\w*imap\w*/ && $temp->{_message} =~ /\w*init\w*/) {
+			$nbImap++;
+		}
+
+	}
+
+	elsif ($ligne =~ /(.*)sudo:\s*(\w*)\s:\.*/) {	# nouveau regex pour detecter les commandes sudo
+		if (exists $cmd_sudo{$2}) {		# on ajoute les usagers qui ont utilise sudo a un tableau associatif
+			$cmd_sudo{$2}++;
+		}
+		else {
+			$cmd_sudo{$2} = "1";
+		}
+	}
+
+	#		     1$        2$	3$	 4$   5$
+	#		     Mois:MMM  Date:DD :HH: 	MM:   SS
+	elsif ($ligne =~ /^(\w{3})\s(\d?\d)\s(\d?\d):(\d\d):(\d\d)\s(.*)ALERT\.*/) { # on note l'heure des alertes
+		$from = 'patrick.lainesse@umontreal.ca';
+		$subject = 'URGENT';
+		$message = $ligne; 
+
+		print "$courriel";
+
+		open(MAIL, "|/usr/sbin/sendmail -t");
+
+		print MAIL "To: $courriel\n";
+		print MAIL "From: $from\n";
+		print MAIL "Subject: $subject\n\n";
+		print MAIL $message;
+
+		close(MAIL);
+	}
+}
+
+print "\nPeriode couverte par le log:\n";
+print "debut: $dateMin\nfin: $dateMax\n\n";
+
+print "Nombre de connexions pop: $nbPop\n";
+print "Nombre de connexions ssh: $nbSsh\n";
+print "Nombre de connexions imap: $nbImap\n\n";
+
+#234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+print "Liste des adresses qui ont fait une connexion ssh et le nombre de fois chacune:\n";
+
+foreach $cle (keys %cnx_ssh)
+{
+
+	printf ("%s%s: %d\n", $cle, ".IRO.UMontreal.CA", $cnx_ssh{$cle});
+
+}
+
+print "\nListe des usagers qui ont utilise la commande SUDO  et le nombre de fois chacun:\n";
+printf ("%s%25s\n", "USAGER", "NOMBRE DE FOIS");
+foreach $usr (keys %cmd_sudo)
+{
+	printf ("%-20s %-15d\n", $usr, $cmd_sudo{$usr});
+}
+
+exit 0;
