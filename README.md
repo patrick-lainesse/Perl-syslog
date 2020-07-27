@@ -1,6 +1,6 @@
 # Perl-syslog
 
-Travail pratique effectué dans le cadre du cours d'administration système, Université de Montréal, Décembre 2019.
+Travail pratique effectué dans le cadre d'un cours universitaire.
 
 Script en Perl recueillant des statistiques à partir d'un fichier de log système sous Linux. J'ai décidé d'utiliser la programmation orientée objet pour tenter de l'apprendre en langage Perl et pour alléger le code.
 
